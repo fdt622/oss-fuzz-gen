@@ -462,6 +462,7 @@ class DefaultTemplateBuilder(PromptBuilder):
     """Slice the driver code up to the target line."""
     target_line = max(target_lines)
     lines = driver_code.split('\n')
+
     if target_line > len(lines):
       logging.warning(
           'Driver target line exceed maxium limit in Project: %s, \
@@ -481,6 +482,7 @@ class DefaultTemplateBuilder(PromptBuilder):
         project, func_sig)
     begin_line, end_line = introspector.query_introspector_function_line(
         project, func_sig)
+
     if begin_line != 0 and end_line != 0 and all(
         begin_line <= line <= end_line for line in target_lines):
       lines = func_code.split('\n')
