@@ -474,28 +474,83 @@ class BuilderRunner:
       build_result.errors = errors
       return build_result, None
 
-    run_result = RunResult()
+    dry_run_result = RunResult()
+    empty_seed_path = os.path.join('/tmp', 'empty_seed')
+    if not os.path.exists(empty_seed_path):
+      with open(empty_seed_path, 'w') as f:
+        f.write('')
 
-    self.run_target_local(
-        generated_project, benchmark_target_name,
-        self.work_dirs.run_logs_target(benchmark_target_name, iteration))
-    run_result.coverage, run_result.coverage_summary = (self.get_coverage_local(
-        generated_project, benchmark_target_name))
+    self.dry_run_target_local(
+        generated_project, empty_seed_path,
+        self.work_dirs.dry_run_logs_target(benchmark_target_name, iteration))
 
-    # Parse libfuzzer logs to get fuzz target runtime details.
-    with open(self.work_dirs.run_logs_target(benchmark_target_name, iteration),
-              'rb') as f:
-      # In many case JVM projects won't have much cov
-      # difference in short running. Adding the flag for JVM
-      # projects to temporary skip the checking of coverage change.
+    with open(
+        self.work_dirs.dry_run_logs_target(benchmark_target_name, iteration),
+        'rb') as f:
       flag = not self.benchmark.language == 'jvm'
-      run_result.cov_pcs, run_result.total_pcs, \
-        run_result.crashes, run_result.crash_info, \
-          run_result.semantic_check = \
+      dry_run_result.cov_pcs, dry_run_result.total_pcs, \
+        dry_run_result.crashes, dry_run_result.crash_info, \
+          dry_run_result.semantic_check = \
             self._parse_libfuzzer_logs(f, project_name, flag)
-      run_result.succeeded = not run_result.semantic_check.has_err
+      dry_run_result.succeeded = not dry_run_result.semantic_check.has_err
 
-    return build_result, run_result
+    #TODO:delete print
+    print('dry run result:\n', dry_run_result)
+
+    if dry_run_result.succeeded:
+      run_result = RunResult()
+
+      self.run_target_local(
+          generated_project, benchmark_target_name,
+          self.work_dirs.run_logs_target(benchmark_target_name, iteration))
+      run_result.coverage, run_result.coverage_summary = (self.get_coverage_local(
+          generated_project, benchmark_target_name))
+
+      # Parse libfuzzer logs to get fuzz target runtime details.
+      with open(self.work_dirs.run_logs_target(benchmark_target_name, iteration),
+                'rb') as f:
+        # In many case JVM projects won't have much cov
+        # difference in short running. Adding the flag for JVM
+        # projects to temporary skip the checking of coverage change.
+        flag = not self.benchmark.language == 'jvm'
+        run_result.cov_pcs, run_result.total_pcs, \
+          run_result.crashes, run_result.crash_info, \
+            run_result.semantic_check = \
+              self._parse_libfuzzer_logs(f, project_name, flag)
+        run_result.succeeded = not run_result.semantic_check.has_err
+
+      return build_result, run_result
+    
+    return build_result, dry_run_result
+  
+  def dry_run_target_local(self, generated_project: str, empty_seed_path: str,
+                           log_path: str):
+    """Runs a target once in the fixed target directory with empty seed."""
+    logger.info(f'Dry running {generated_project}')
+    command = [
+        'python3', 'infra/helper.py', 'reproduce', generated_project,
+        self.benchmark.target_name, empty_seed_path, '--'
+    ] + self._libfuzzer_args() + ['-runs=0']
+
+    with open(log_path, 'w') as f:
+      proc = sp.Popen(command,
+                      stdin=sp.DEVNULL,
+                      stdout=f,
+                      stderr=sp.STDOUT,
+                      cwd=oss_fuzz_checkout.OSS_FUZZ_DIR)
+
+      # TODO(fdt622): Handle the timeout exception.
+      try:
+        proc.wait(timeout=self.run_timeout + 5)
+      except sp.TimeoutExpired:
+        logger.info(f'{generated_project} timed out during dry run.')
+        # Try continuing and parsing the logs even in case of timeout.
+
+    if proc.returncode != 0:
+      logger.info(
+          f'********** Failed to dry run {generated_project}. **********')
+    else:
+      logger.info(f'Successfully dry run {generated_project}.')
 
   def run_target_local(self, generated_project: str, benchmark_target_name: str,
                        log_path: str):

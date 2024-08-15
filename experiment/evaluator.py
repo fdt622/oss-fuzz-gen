@@ -387,15 +387,17 @@ class Evaluator:
                  TriageResult.NOT_APPLICABLE))
 
     # Triage the crash with LLM
-    dual_logger.log(f'Triaging the crash related to {target_path} with '
-                    f'{self.builder_runner.fixer_model_name}.')
-    run_result.triage = self.triage_crash(
-        ai_binary,
-        generated_oss_fuzz_project,
-        target_path,
-        run_result,
-        dual_logger,
-    )
+    if run_result.crashes and run_result.semantic_check.type \
+      != SemanticCheckResult.FP_TARGET_CRASH:
+      dual_logger.log(f'Triaging the crash related to {target_path} with '
+                      f'{self.builder_runner.fixer_model_name}.')
+      run_result.triage = self.triage_crash(
+          ai_binary,
+          generated_oss_fuzz_project,
+          target_path,
+          run_result,
+          dual_logger,
+      )
 
     if run_result.coverage_summary is None or run_result.coverage is None:
       dual_logger.log(
