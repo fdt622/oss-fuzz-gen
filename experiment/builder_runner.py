@@ -54,9 +54,9 @@ LIBFUZZER_STACK_FRAME_LINE_PREFIX = re.compile(r'^\s+#\d+')
 CRASH_EXCLUSIONS = re.compile(r'.*(slow-unit-|timeout-|leak-|oom-).*')
 CRASH_STACK_WITH_SOURCE_INFO = re.compile(r'in.*:\d+:\d+$')
 
+COMMON_LIB_API = ['mkdtemp']
+LIBFUZZER_LOG_STACK_FRAME_RUNONE = ' fuzzer::Fuzzer::RunOne'
 LIBFUZZER_LOG_STACK_FRAME_LLVM = '/src/llvm-project/compiler-rt'
-LIBFUZZER_LOG_STACK_FRAME_LLVM2 = '/work/llvm-stage2/projects/compiler-rt'
-LIBFUZZER_LOG_STACK_FRAME_CPP = '/usr/local/bin/../include/c++'
 
 EARLY_FUZZING_ROUND_THRESHOLD = 3
 
@@ -293,11 +293,30 @@ class BuilderRunner:
 
     return initcov, donecov, lastround
 
-  def _stack_func_is_of_testing_project(self, stack_frame: str) -> bool:
-    return (bool(CRASH_STACK_WITH_SOURCE_INFO.match(stack_frame)) and
-            LIBFUZZER_LOG_STACK_FRAME_LLVM not in stack_frame and
-            LIBFUZZER_LOG_STACK_FRAME_LLVM2 not in stack_frame and
-            LIBFUZZER_LOG_STACK_FRAME_CPP not in stack_frame)
+  def _stack_func_is_of_common_lib(self, stack_frame: str) -> bool:
+      if not bool(CRASH_STACK_WITH_SOURCE_INFO.match(stack_frame)):
+          return False
+
+      for api in COMMON_LIB_API:
+          pattern = f' {api} '
+          if pattern in stack_frame:
+              return True
+
+      return False
+
+  def _malloc_is_of_driver_or_fuzzer(self, stack: list,
+                                      proj_name: str) -> bool:
+      if ' malloc ' not in stack[
+              0] or LIBFUZZER_LOG_STACK_FRAME_LLVM not in stack[0]:
+          return False
+
+      for frame in stack[1:]:
+          if LIBFUZZER_LOG_STACK_FRAME_RUNONE in frame and LIBFUZZER_LOG_STACK_FRAME_LLVM in frame:
+              return True
+          if proj_name in frame:
+              return False
+
+      return False
 
   def _parse_libfuzzer_logs(self,
                             log_handle,
@@ -397,18 +416,34 @@ class BuilderRunner:
             SemanticCheckResult(SemanticCheckResult.FP_NEAR_INIT_CRASH, symptom,
                                 crash_stacks, crash_func))
 
-      # FP case 3: 1st func of the 1st thread stack is in fuzz target.
-      if len(crash_stacks) > 0:
-        first_stack = crash_stacks[0]
-        # Check the first stack frame of the first stack only.
-        for stack_frame in first_stack[:1]:
-          if self._stack_func_is_of_testing_project(stack_frame):
-            if 'LLVMFuzzerTestOneInput' in stack_frame:
-              return ParseResult(
-                  cov_pcs, total_pcs, True, crash_info,
-                  SemanticCheckResult(SemanticCheckResult.FP_TARGET_CRASH,
-                                      symptom, crash_stacks, crash_func))
-            break
+      stacks_num = len(crash_stacks)
+
+      # FP case 3: crash at common lib api in fuzz target.
+      if stacks_num == 1:
+          first_stack = crash_stacks[0]
+          for i in range(len(first_stack) - 1):
+              if self._stack_func_is_of_common_lib(first_stack[i]):
+                  if 'LLVMFuzzerTestOneInput' in first_stack[i + 1]:
+                      return ParseResult(
+                          cov_pcs, total_pcs, True, crash_info,
+                          SemanticCheckResult(
+                              SemanticCheckResult.FP_TARGET_CRASH,
+                              symptom, crash_stacks, crash_func))
+                  break
+
+      # FP case 4: first frame in first stack is LLVMFuzzerTestOneInput.
+      # first frame in second stack is malloc, by driver or fuzzer.
+      if stacks_num == 2:
+          first_stack = crash_stacks[0]
+          second_stack = crash_stacks[1]
+          if 'LLVMFuzzerTestOneInput' in first_stack[0]:
+              if self._malloc_is_of_driver_or_fuzzer(
+                      second_stack, project_name):
+                  return ParseResult(
+                      cov_pcs, total_pcs, True, crash_info,
+                      SemanticCheckResult(
+                          SemanticCheckResult.FP_TARGET_CRASH, symptom,
+                          crash_stacks, crash_func))
 
       return ParseResult(
           cov_pcs, total_pcs, True, crash_info,
