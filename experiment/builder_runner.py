@@ -476,10 +476,13 @@ class BuilderRunner:
 
     dry_run_result = RunResult()
     empty_seed_path = os.path.join('/tmp', 'empty_seed')
+    #TODO: delete print
+    print('empty_seed_path:', empty_seed_path)
     if not os.path.exists(empty_seed_path):
       with open(empty_seed_path, 'w') as f:
         f.write('')
-
+    #TODO: delete print
+    print('dry_run_logs_target result:', self.work_dirs.dry_run_logs_target(benchmark_target_name, iteration))
     self.dry_run_target_local(
         generated_project, empty_seed_path,
         self.work_dirs.dry_run_logs_target(benchmark_target_name, iteration))
