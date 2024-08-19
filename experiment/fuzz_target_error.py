@@ -107,7 +107,7 @@ class SemanticCheckResult:
               ', indicating fuzz target code for invoking the function under'
               ' test is incorrect or unrobust.')
     if self.type == self.FP_TARGET_CRASH:
-      return (f'Fuzzing has crashes ({self.crash_symptom}) caused by fuzz '
+      return (f'The crash ({self.crash_symptom}) is caused by fuzz '
               'target code, indicating its usage for the function under '
               'test is incorrect or unrobust.')
     if self.type == self.FP_MEMLEAK:
