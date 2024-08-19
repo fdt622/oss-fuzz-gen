@@ -398,8 +398,8 @@ class BuilderRunner:
           # This is very likely the false positive cases.
           return ParseResult(
               cov_pcs, total_pcs, True, crash_info,
-              SemanticCheckResult(SemanticCheckResult.FP_NEAR_INIT_CRASH, symptom,
-                                  crash_stacks, crash_func))
+              SemanticCheckResult(SemanticCheckResult.FP_NEAR_INIT_CRASH,
+                                  symptom, crash_stacks, crash_func))
 
       # FP case 3: 1st func of the 1st thread stack is in fuzz target.
       if len(crash_stacks) > 0:
@@ -484,7 +484,7 @@ class BuilderRunner:
     if not os.path.exists(empty_seed_path):
       with open(empty_seed_path, 'w') as f:
         f.write('')
-  
+
     self.dry_run_target_local(
         generated_project, empty_seed_path,
         self.work_dirs.dry_run_logs_target(benchmark_target_name, iteration))
@@ -505,12 +505,13 @@ class BuilderRunner:
       self.run_target_local(
           generated_project, benchmark_target_name,
           self.work_dirs.run_logs_target(benchmark_target_name, iteration))
-      run_result.coverage, run_result.coverage_summary = (self.get_coverage_local(
-          generated_project, benchmark_target_name))
+      run_result.coverage, run_result.coverage_summary = (
+          self.get_coverage_local(generated_project, benchmark_target_name))
 
       # Parse libfuzzer logs to get fuzz target runtime details.
-      with open(self.work_dirs.run_logs_target(benchmark_target_name, iteration),
-                'rb') as f:
+      with open(
+          self.work_dirs.run_logs_target(benchmark_target_name, iteration),
+          'rb') as f:
         # In many case JVM projects won't have much cov
         # difference in short running. Adding the flag for JVM
         # projects to temporary skip the checking of coverage change.
@@ -522,9 +523,9 @@ class BuilderRunner:
         run_result.succeeded = not run_result.semantic_check.has_err
 
       return build_result, run_result
-    
+
     return build_result, dry_run_result
-  
+
   def dry_run_target_local(self, generated_project: str, empty_seed_path: str,
                            log_path: str):
     """Runs a target once in the fixed target directory with empty seed."""
