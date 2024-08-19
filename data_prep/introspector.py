@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar('T', str, list, dict, int)  # Generic type.
 
-TIMEOUT = 1
-MAX_RETRY = 1
+TIMEOUT = 45
+MAX_RETRY = 5
 
 # By default exclude static functions when identifying fuzz target candidates
 # to generate benchmarks.
