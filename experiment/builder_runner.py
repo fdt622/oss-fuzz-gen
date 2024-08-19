@@ -337,9 +337,11 @@ class BuilderRunner:
         crashes = True
         continue
 
+    initcov, donecov, lastround = None, None, None
+
     if not dry_run:
-      initcov, donecov, lastround = self._parse_fuzz_cov_info_from_libfuzzer_logs(
-          lines)
+      initcov, donecov, lastround = \
+        self._parse_fuzz_cov_info_from_libfuzzer_logs(lines)
 
     # NOTE: Crashes from incorrect fuzz targets will not be counted finally.
 
@@ -394,7 +396,8 @@ class BuilderRunner:
       if not dry_run:
         # FP case 2: fuzz target crashes at init or first few rounds.
         if lastround is None or lastround <= EARLY_FUZZING_ROUND_THRESHOLD:
-          # No cov line has been identified or only INITED round has been passed.
+          # No cov line has been identified or
+          # only INITED round has been passed.
           # This is very likely the false positive cases.
           return ParseResult(
               cov_pcs, total_pcs, True, crash_info,
@@ -529,7 +532,7 @@ class BuilderRunner:
   def dry_run_target_local(self, generated_project: str, empty_seed_path: str,
                            log_path: str):
     """Runs a target once in the fixed target directory with empty seed."""
-    logger.info(f'Dry running {generated_project}')
+    logger.info('Dry running %s', generated_project)
     command = [
         'python3', 'infra/helper.py', 'reproduce', generated_project,
         self.benchmark.target_name, empty_seed_path, '--'
@@ -550,8 +553,8 @@ class BuilderRunner:
         # Try continuing and parsing the logs even in case of timeout.
 
     if proc.returncode != 0:
-      logger.info(
-          f'********** Failed to dry run {generated_project}. **********')
+      logger.info('********** Failed to dry run %s. **********',
+                  generated_project)
     else:
       logger.info(f'Successfully dry run {generated_project}.')
 
