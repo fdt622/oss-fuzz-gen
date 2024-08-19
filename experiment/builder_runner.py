@@ -549,14 +549,14 @@ class BuilderRunner:
       try:
         proc.wait(timeout=self.run_timeout + 5)
       except sp.TimeoutExpired:
-        logger.info(f'{generated_project} timed out during dry run.')
+        logger.info('%s timed out during dry run.', generated_project)
         # Try continuing and parsing the logs even in case of timeout.
 
     if proc.returncode != 0:
       logger.info('********** Failed to dry run %s. **********',
                   generated_project)
     else:
-      logger.info(f'Successfully dry run {generated_project}.')
+      logger.info('Successfully dry run %s.', generated_project)
 
   def run_target_local(self, generated_project: str, benchmark_target_name: str,
                        log_path: str):
