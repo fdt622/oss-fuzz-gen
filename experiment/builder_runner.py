@@ -397,18 +397,13 @@ class BuilderRunner:
             SemanticCheckResult(SemanticCheckResult.FP_NEAR_INIT_CRASH, symptom,
                                 crash_stacks, crash_func))
 
-      # FP case 3: 1st func of the 1st thread stack is in fuzz target.
+      # FP case 3: func of stack frames does not belong to proj under test.
       if len(crash_stacks) > 0:
-        first_stack = crash_stacks[0]
-        # Check the first stack frame of the first stack only.
-        for stack_frame in first_stack:
-          if self._stack_func_is_of_testing_project(stack_frame):
-            if 'LLVMFuzzerTestOneInput' in stack_frame:
-              return ParseResult(
-                  cov_pcs, total_pcs, True, crash_info,
-                  SemanticCheckResult(SemanticCheckResult.FP_TARGET_CRASH,
-                                      symptom, crash_stacks, crash_func))
-            break
+        if self._stack_func_is_of_testing_project(crash_stacks):
+          return ParseResult(
+              cov_pcs, total_pcs, True, crash_info,
+              SemanticCheckResult(SemanticCheckResult.FP_TARGET_CRASH,
+                                  symptom, crash_stacks, crash_func))
 
       return ParseResult(
           cov_pcs, total_pcs, True, crash_info,
