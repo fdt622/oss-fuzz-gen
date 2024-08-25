@@ -302,8 +302,7 @@ class BuilderRunner:
   def _parse_libfuzzer_logs(self,
                             log_handle,
                             project_name: str,
-                            check_cov_increase: bool = True,
-                            dry_run: bool = False) -> ParseResult:
+                            check_cov_increase: bool = True) -> ParseResult:
     """Parses libFuzzer logs."""
     lines = None
     try:
@@ -320,16 +319,15 @@ class BuilderRunner:
     cov_pcs, total_pcs, crashes = 0, 0, False
 
     for line in lines:
-      if not dry_run:
-        m = LIBFUZZER_MODULES_LOADED_REGEX.match(line)
-        if m:
-          total_pcs = int(m.group(2))
-          continue
+      m = LIBFUZZER_MODULES_LOADED_REGEX.match(line)
+      if m:
+        total_pcs = int(m.group(2))
+        continue
 
-        m = LIBFUZZER_COV_REGEX.match(line)
-        if m:
-          cov_pcs = int(m.group(1))
-          continue
+      m = LIBFUZZER_COV_REGEX.match(line)
+      if m:
+        cov_pcs = int(m.group(1))
+        continue
 
       m = LIBFUZZER_CRASH_TYPE_REGEX.match(line)
       if m and not CRASH_EXCLUSIONS.match(line):
@@ -337,11 +335,8 @@ class BuilderRunner:
         crashes = True
         continue
 
-    initcov, donecov, lastround = None, None, None
-
-    if not dry_run:
-      initcov, donecov, lastround = \
-        self._parse_fuzz_cov_info_from_libfuzzer_logs(lines)
+    initcov, donecov, lastround = \
+      self._parse_fuzz_cov_info_from_libfuzzer_logs(lines)
 
     # NOTE: Crashes from incorrect fuzz targets will not be counted finally.
 
@@ -393,16 +388,15 @@ class BuilderRunner:
             SemanticCheckResult(SemanticCheckResult.FP_OOM, symptom,
                                 crash_stacks, crash_func))
 
-      if not dry_run:
-        # FP case 2: fuzz target crashes at init or first few rounds.
-        if lastround is None or lastround <= EARLY_FUZZING_ROUND_THRESHOLD:
-          # No cov line has been identified or
-          # only INITED round has been passed.
-          # This is very likely the false positive cases.
-          return ParseResult(
-              cov_pcs, total_pcs, True, crash_info,
-              SemanticCheckResult(SemanticCheckResult.FP_NEAR_INIT_CRASH,
-                                  symptom, crash_stacks, crash_func))
+      # FP case 2: fuzz target crashes at init or first few rounds.
+      if lastround is None or lastround <= EARLY_FUZZING_ROUND_THRESHOLD:
+        # No cov line has been identified or
+        # only INITED round has been passed.
+        # This is very likely the false positive cases.
+        return ParseResult(
+            cov_pcs, total_pcs, True, crash_info,
+            SemanticCheckResult(SemanticCheckResult.FP_NEAR_INIT_CRASH,
+                                symptom, crash_stacks, crash_func))
 
       # FP case 3: 1st func of the 1st thread stack is in fuzz target.
       if len(crash_stacks) > 0:
@@ -422,15 +416,14 @@ class BuilderRunner:
           SemanticCheckResult(SemanticCheckResult.NO_SEMANTIC_ERR, symptom,
                               crash_stacks, crash_func))
 
-    if not dry_run:
-      if check_cov_increase and initcov == donecov and lastround is not None:
-        # Another error fuzz target case: no cov increase.
-        # A special case is initcov == donecov == None, which indicates no
-        # interesting inputs were found. This may happen if the target rejected
-        # all inputs we tried.
-        return ParseResult(
-            cov_pcs, total_pcs, False, '',
-            SemanticCheckResult(SemanticCheckResult.NO_COV_INCREASE))
+    if check_cov_increase and initcov == donecov and lastround is not None:
+      # Another error fuzz target case: no cov increase.
+      # A special case is initcov == donecov == None, which indicates no
+      # interesting inputs were found. This may happen if the target rejected
+      # all inputs we tried.
+      return ParseResult(
+          cov_pcs, total_pcs, False, '',
+          SemanticCheckResult(SemanticCheckResult.NO_COV_INCREASE))
 
     return ParseResult(cov_pcs, total_pcs, crashes, '',
                        SemanticCheckResult(SemanticCheckResult.NO_SEMANTIC_ERR))
@@ -457,7 +450,7 @@ class BuilderRunner:
       self, generated_project: str, target_path: str, iteration: int,
       build_result: BuildResult,
       language: str) -> tuple[BuildResult, Optional[RunResult]]:
-    """Builds and runs the fuzz target locally for fuzzing."""
+    """Builds and runs the fuzz target locally for once and fuzzing."""
     project_name = self.benchmark.project
     benchmark_target_name = os.path.basename(target_path)
     project_target_name = os.path.basename(self.benchmark.target_path)
@@ -499,7 +492,7 @@ class BuilderRunner:
       dry_run_result.cov_pcs, dry_run_result.total_pcs, \
         dry_run_result.crashes, dry_run_result.crash_info, \
           dry_run_result.semantic_check = \
-            self._parse_libfuzzer_logs(f, project_name, flag, True)
+            self._parse_libfuzzer_logs(f, project_name, flag)
       dry_run_result.succeeded = not dry_run_result.crashes
 
     if dry_run_result.succeeded:
@@ -522,7 +515,7 @@ class BuilderRunner:
         run_result.cov_pcs, run_result.total_pcs, \
           run_result.crashes, run_result.crash_info, \
             run_result.semantic_check = \
-              self._parse_libfuzzer_logs(f, project_name, flag, False)
+              self._parse_libfuzzer_logs(f, project_name, flag)
         run_result.succeeded = not run_result.semantic_check.has_err
 
       return build_result, run_result
@@ -645,6 +638,8 @@ class BuilderRunner:
         'FUZZING_ENGINE=libfuzzer',
         '-e',
         f'SANITIZER={sanitizer}',
+        '-e',
+        'ASAN_OPTIONS=check_initialization_order=true:detect_stack_use_after_return=true',
         '-e',
         'ARCHITECTURE=x86_64',
         '-e',
