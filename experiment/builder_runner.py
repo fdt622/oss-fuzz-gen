@@ -639,8 +639,6 @@ class BuilderRunner:
         '-e',
         f'SANITIZER={sanitizer}',
         '-e',
-        'ASAN_OPTIONS=check_initialization_order=true:detect_stack_use_after_return=true',
-        '-e',
         'ARCHITECTURE=x86_64',
         '-e',
         f'PROJECT_NAME={generated_project}',
@@ -658,7 +656,7 @@ class BuilderRunner:
         # https://github.com/google/oss-fuzz/blob/090e0d6/infra/base-images/base-builder/jcc/jcc.go#L360
         '-v',
         f'{workspacedir}:/workspace',
-    ]
+    ] + (['-e', 'ASAN_OPTIONS=check_initialization_order=true:detect_stack_use_after_return=true'] if sanitizer == 'address' else [])
     # Avoid permissions errors.
     os.makedirs(outdir, exist_ok=True)
     os.makedirs(workdir, exist_ok=True)

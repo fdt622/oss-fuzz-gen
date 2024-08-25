@@ -214,8 +214,8 @@ def _prepare_image_cache(project: str) -> bool:
     # Create cached image by building using OSS-Fuzz with set variable
     command = [
         'python3', 'infra/helper.py', 'build_fuzzers', project, '--sanitizer',
-        sanitizer
-    ]
+        sanitizer] + (['-e', 'ASAN_OPTIONS=check_initialization_order=true:detect_stack_use_after_return=true'] if sanitizer == 'address' else [])
+
     try:
       sp.run(command, cwd=OSS_FUZZ_DIR, env=adjusted_env, check=True)
     except sp.CalledProcessError:
