@@ -238,15 +238,21 @@ class Evaluator:
                                  run_result: Optional[RunResult],
                                  dual_logger: _Logger):
     """Fixes the generated fuzz target."""
-    if build_result.succeeded:
-      if run_result:
-        error_desc, errors = run_result.semantic_check.get_error_info()
-      else:
-        dual_logger.log(f'Warning: Build succeed but no run_result in '
-                        f'{generated_oss_fuzz_project}.')
-        error_desc, errors = '', []
-    else:
+    if not build_result.msan_succeeded:
       error_desc, errors = None, build_result.errors
+    elif not run_result:
+      dual_logger.log(f'Warning: Build with msan succeed but no run_result in '
+                          f'{generated_oss_fuzz_project}.')
+      error_desc, errors = '', []
+    else:
+      if not run_result.dry_run_with_msan_succeeded:
+        error_desc, errors = run_result.semantic_check.get_error_info()
+      elif not build_result.asan_succeeded:
+        error_desc, errors = None, build_result.errors
+      elif not run_result.dry_run_with_asan_succeeded:
+        error_desc, errors = run_result.semantic_check.get_error_info()
+      elif not run_result.fuzz_with_asan_succeeded:
+        error_desc, errors = run_result.semantic_check.get_error_info()
     code_fixer.llm_fix(ai_binary, target_path, self.benchmark, iteration,
                        error_desc, errors, self.builder_runner.fixer_model_name)
     shutil.copyfile(
@@ -342,7 +348,9 @@ class Evaluator:
         build_result = BuildResult()
         run_result = None
 
-      gen_succ = build_result.succeeded and run_result and run_result.succeeded
+      gen_succ = build_result.msan_succeeded and build_result.asan_succeeded and \
+        run_result and run_result.dry_run_with_msan_succeeded and \
+          run_result.dry_run_with_asan_succeeded and run_result.fuzz_with_asan_succeeded
       if gen_succ or llm_fix_count >= LLM_FIX_LIMIT:
         # Exit cond 1: successfully generate the fuzz target.
         # Exit cond 2: fix limit is reached.
@@ -365,16 +373,21 @@ class Evaluator:
         break
 
     # Logs and returns the result.
-    if not build_result.succeeded:
-      dual_logger.log(f'Failed to build {target_path} with '
+    if not build_result.msan_succeeded:
+      dual_logger.log(f'Failed to build {target_path} with MSAN under'
                       f'{self.builder_runner.fixer_model_name} in '
                       f'{llm_fix_count} iterations of fixing.')
       return dual_logger.return_result(
           Result(False, False, 0.0, 0.0, '', '', False,
                  SemanticCheckResult.NOT_APPLICABLE,
                  TriageResult.NOT_APPLICABLE))
-
-    dual_logger.log(f'Successfully built {target_path} with '
+    elif not build_result.asan_succeeded:
+      dual_logger.log(f'Successfully built {target_path} with MSAN '
+                      f'but failed with ASAN under '
+                      f'{self.builder_runner.fixer_model_name} in '
+                      f'{llm_fix_count} iterations of fixing.')
+    else:
+      dual_logger.log(f'Successfully built {target_path} with MSAN and ASAN under '
                     f'{self.builder_runner.fixer_model_name} in '
                     f'{llm_fix_count} iterations of fixing.')
 
@@ -387,6 +400,7 @@ class Evaluator:
                  TriageResult.NOT_APPLICABLE))
 
     # Triage the crash with LLM
+    # TODO: run_result.crashes
     if run_result.crashes and run_result.semantic_check.type \
       != SemanticCheckResult.FP_TARGET_CRASH:
       dual_logger.log(f'Triaging the crash related to {target_path} with '

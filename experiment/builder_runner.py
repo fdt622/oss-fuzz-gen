@@ -69,6 +69,9 @@ ParseResult = namedtuple(
 class BuildResult:
   """Results of compilation & link."""
 
+  asan_succeeded: bool = False
+  msan_succeeded: bool = False
+  #TODO: delete succeeded
   succeeded: bool = False
   errors: list[str] = dataclasses.field(default_factory=list)
   log_path: str = ''
@@ -79,8 +82,12 @@ class BuildResult:
 
 @dataclasses.dataclass
 class RunResult:
-  """Checked results of conducting short-term fuzzing."""
+  """Checked results of conducting dry run and short-term fuzzing."""
 
+  dry_run_with_msan_succeeded: bool = False
+  dry_run_with_asan_succeeded: bool = False
+  fuzz_with_asan_succeeded: bool = False
+  #TODO: delete succeeded
   succeeded: bool = False
   coverage_summary: dict = dataclasses.field(default_factory=dict)
   coverage: Optional[textcov.Textcov] = None
@@ -90,6 +97,9 @@ class RunResult:
   reproducer_path: str = ''
   cov_pcs: int = 0
   total_pcs: int = 0
+  # dry_run_with_msan_crashes: bool = False
+  # dry_run_with_asan_crashes: bool = False
+  # fuzz_with_asan_crashes: bool = False
   crashes: bool = False
   crash_info: str = ''
   triage: str = TriageResult.NOT_APPLICABLE
@@ -453,11 +463,24 @@ class BuilderRunner:
     """Builds and runs the fuzz target locally for once and fuzzing."""
     project_name = self.benchmark.project
     benchmark_target_name = os.path.basename(target_path)
+    #TODO: delete print
+    print('benchmark_target_name: ', benchmark_target_name)
     project_target_name = os.path.basename(self.benchmark.target_path)
-    benchmark_log_path = self.work_dirs.build_logs_target(
+    
+    # Prepare empty seed
+    empty_seed_path = os.path.join('/tmp', 'empty_seed')
+    if not os.path.exists(empty_seed_path):
+      with open(empty_seed_path, 'w') as f:
+        f.write('')
+
+    # Build with MSAN
+    benchmark_msan_log_path = self.work_dirs.build_with_msan_logs_target(
         benchmark_target_name, iteration)
-    build_result.succeeded = self.build_target_local(generated_project,
-                                                     benchmark_log_path)
+    #TODO: delete print
+    print('benchmark_msan_log_path: ', benchmark_msan_log_path)
+    build_result.msan_succeeded = self.build_target_local(generated_project,
+                                                          benchmark_msan_log_path,
+                                                          sanitizer = 'memory')
 
     # Copy err.log into work dir (Ignored for JVM projects)
     if language != 'jvm':
@@ -465,67 +488,106 @@ class BuilderRunner:
         shutil.copyfile(
             os.path.join(get_build_artifact_dir(generated_project, "workspace"),
                          'err.log'),
-            self.work_dirs.error_logs_target(benchmark_target_name, iteration))
+            self.work_dirs.msan_error_logs_target(benchmark_target_name, iteration))
       except FileNotFoundError as e:
         logger.error('Cannot get err.log for %s: %s', generated_project, e)
 
-    if not build_result.succeeded:
-      errors = code_fixer.extract_error_message(benchmark_log_path,
+    if not build_result.msan_succeeded:
+      errors = code_fixer.extract_error_message(benchmark_msan_log_path,
                                                 project_target_name)
       build_result.errors = errors
       return build_result, None
-
-    dry_run_result = RunResult()
-    empty_seed_path = os.path.join('/tmp', 'empty_seed')
-    if not os.path.exists(empty_seed_path):
-      with open(empty_seed_path, 'w') as f:
-        f.write('')
-
+    
+    run_result = RunResult()
+    # Dry run with MSAN
     self.dry_run_target_local(
-        generated_project, empty_seed_path,
-        self.work_dirs.dry_run_logs_target(benchmark_target_name, iteration))
+        generated_project, empty_seed_path, 
+        self.work_dirs.dry_run_with_msan_logs_target(benchmark_target_name, iteration), 
+        sanitizer = 'memory')
 
     with open(
-        self.work_dirs.dry_run_logs_target(benchmark_target_name, iteration),
+        self.work_dirs.dry_run_with_msan_logs_target(benchmark_target_name, iteration),
         'rb') as f:
       flag = not self.benchmark.language == 'jvm'
-      dry_run_result.cov_pcs, dry_run_result.total_pcs, \
-        dry_run_result.crashes, dry_run_result.crash_info, \
-          dry_run_result.semantic_check = \
+      run_result.cov_pcs, run_result.total_pcs, \
+        run_result.crashes, run_result.crash_info, \
+          run_result.semantic_check = \
             self._parse_libfuzzer_logs(f, project_name, flag)
-      dry_run_result.succeeded = not dry_run_result.crashes
+      run_result.dry_run_with_msan_succeeded = not run_result.crashes
 
-    if dry_run_result.succeeded:
-      run_result = RunResult()
-
-      self.run_target_local(
-          generated_project, benchmark_target_name,
-          self.work_dirs.run_logs_target(benchmark_target_name, iteration))
-      run_result.coverage, run_result.coverage_summary = (
-          self.get_coverage_local(generated_project, benchmark_target_name))
-
-      # Parse libfuzzer logs to get fuzz target runtime details.
-      with open(
-          self.work_dirs.run_logs_target(benchmark_target_name, iteration),
-          'rb') as f:
-        # In many case JVM projects won't have much cov
-        # difference in short running. Adding the flag for JVM
-        # projects to temporary skip the checking of coverage change.
-        flag = not self.benchmark.language == 'jvm'
-        run_result.cov_pcs, run_result.total_pcs, \
-          run_result.crashes, run_result.crash_info, \
-            run_result.semantic_check = \
-              self._parse_libfuzzer_logs(f, project_name, flag)
-        run_result.succeeded = not run_result.semantic_check.has_err
-
+    if not run_result.dry_run_with_msan_succeeded:
       return build_result, run_result
+    
+    # Build with ASAN
+    benchmark_asan_log_path = self.work_dirs.build_with_asan_logs_target(
+        benchmark_target_name, iteration)
+    #TODO: delete print
+    print('benchmark_asan_log_path: ', benchmark_asan_log_path)
+    build_result.asan_succeeded = self.build_target_local(generated_project,
+                                                     benchmark_asan_log_path)
 
-    return build_result, dry_run_result
+    # Copy err.log into work dir (Ignored for JVM projects)
+    if language != 'jvm':
+      try:
+        shutil.copyfile(
+            os.path.join(get_build_artifact_dir(generated_project, "workspace"),
+                         'err.log'),
+            self.work_dirs.asan_error_logs_target(benchmark_target_name, iteration))
+      except FileNotFoundError as e:
+        logger.error('Cannot get err.log for %s: %s', generated_project, e)
+
+    if not build_result.asan_succeeded:
+      errors = code_fixer.extract_error_message(benchmark_asan_log_path,
+                                                project_target_name)
+      build_result.errors = errors
+      return build_result, run_result
+    
+    # Dry run with ASAN
+    self.dry_run_target_local(
+        generated_project, empty_seed_path,
+        self.work_dirs.dry_run_with_asan_logs_target(benchmark_target_name, iteration),
+        sanitizer = 'address')
+
+    with open(
+        self.work_dirs.dry_run_with_asan_logs_target(benchmark_target_name, iteration),
+        'rb') as f:
+      flag = not self.benchmark.language == 'jvm'
+      run_result.cov_pcs, run_result.total_pcs, \
+        run_result.crashes, run_result.crash_info, \
+          run_result.semantic_check = \
+            self._parse_libfuzzer_logs(f, project_name, flag)
+      run_result.dry_run_with_asan_succeeded = not run_result.crashes
+
+    if not run_result.dry_run_with_asan_succeeded:
+      return build_result, run_result
+      
+    # Short-term fuzzing
+    self.run_target_local(
+        generated_project, benchmark_target_name,
+        self.work_dirs.run_logs_target(benchmark_target_name, iteration))
+    run_result.coverage, run_result.coverage_summary = (
+        self.get_coverage_local(generated_project, benchmark_target_name))
+
+    # Parse libfuzzer logs to get fuzz target runtime details.
+    with open(
+        self.work_dirs.run_logs_target(benchmark_target_name, iteration),
+        'rb') as f:
+      # In many case JVM projects won't have much cov
+      # difference in short running. Adding the flag for JVM
+      # projects to temporary skip the checking of coverage change.
+      flag = not self.benchmark.language == 'jvm'
+      run_result.cov_pcs, run_result.total_pcs, \
+        run_result.crashes, run_result.crash_info, \
+          run_result.semantic_check = \
+            self._parse_libfuzzer_logs(f, project_name, flag)
+      run_result.fuzz_with_asan_succeeded = not run_result.semantic_check.has_err
+
+    return build_result, run_result
 
   def dry_run_target_local(self, generated_project: str, empty_seed_path: str,
-                           log_path: str):
+                          log_path: str, sanitizer: str):
     """Runs a target once in the fixed target directory with empty seed."""
-    logger.info('Dry running %s', generated_project)
+    logger.info('Dry running %s with %s', generated_project, sanitizer)
     command = [
         'python3', 'infra/helper.py', 'reproduce', generated_project,
         self.benchmark.target_name, empty_seed_path, '--'
@@ -542,21 +604,21 @@ class BuilderRunner:
       try:
         proc.wait(timeout=self.run_timeout + 5)
       except sp.TimeoutExpired:
-        logger.info('%s timed out during dry run.', generated_project)
+        logger.info('%s timed out during dry run with %s.', generated_project, sanitizer)
         # Try continuing and parsing the logs even in case of timeout.
 
     if proc.returncode != 0:
-      logger.info('********** Failed to dry run %s. **********',
-                  generated_project)
+      logger.info('********** Failed to dry run %s with %s. **********',
+                  generated_project, sanitizer)
     else:
-      logger.info('Successfully dry run %s.', generated_project)
+      logger.info('Successfully dry run %s with %s.', generated_project, sanitizer)
 
   def run_target_local(self, generated_project: str, benchmark_target_name: str,
-                       log_path: str):
+                       log_path: str, sanitizer: str):
     """Runs a target in the fixed target directory."""
     # If target name is not overridden, use the basename of the target path
     # in the Dockerfile.
-    logger.info('Running %s', generated_project)
+    logger.info('Running %s with %s', generated_project, sanitizer)
     corpus_dir = self.work_dirs.corpus(benchmark_target_name)
     command = [
         'python3', 'infra/helper.py', 'run_fuzzer', '--corpus-dir', corpus_dir,
@@ -574,13 +636,13 @@ class BuilderRunner:
       try:
         proc.wait(timeout=self.run_timeout + 5)
       except sp.TimeoutExpired:
-        logger.info('%s timed out during fuzzing.', generated_project)
+        logger.info('%s timed out during fuzzing with %s.', generated_project, sanitizer)
         # Try continuing and parsing the logs even in case of timeout.
 
     if proc.returncode != 0:
-      logger.info('********** Failed to run %s. **********', generated_project)
+      logger.info('********** Failed to run %s with %s. **********', generated_project, sanitizer)
     else:
-      logger.info('Successfully run %s.', generated_project)
+      logger.info('Successfully run %s with %s.', generated_project, sanitizer)
 
   def build_target_local(self,
                          generated_project: str,
@@ -638,6 +700,8 @@ class BuilderRunner:
         'FUZZING_ENGINE=libfuzzer',
         '-e',
         f'SANITIZER={sanitizer}',
+        '-e', 
+        'ASAN_OPTIONS=check_initialization_order=true:detect_stack_use_after_return=true',
         '-e',
         'ARCHITECTURE=x86_64',
         '-e',
@@ -656,7 +720,7 @@ class BuilderRunner:
         # https://github.com/google/oss-fuzz/blob/090e0d6/infra/base-images/base-builder/jcc/jcc.go#L360
         '-v',
         f'{workspacedir}:/workspace',
-    ] + (['-e', 'ASAN_OPTIONS=check_initialization_order=true:detect_stack_use_after_return=true'] if sanitizer == 'address' else [])
+    ]
     # Avoid permissions errors.
     os.makedirs(outdir, exist_ok=True)
     os.makedirs(workdir, exist_ok=True)
@@ -682,7 +746,17 @@ class BuilderRunner:
             ['git', '-C', repo, 'checkout', commit, '-f', '&&'])
       post_build_command.extend(['&&', 'chmod', '777', '-R', '/out/*'])
 
-    build_command = pre_build_command + ['compile'] + post_build_command
+    compile_command = ['compile']
+    if sanitizer == 'memory':
+      compile_command.extend([
+        '-fsanitize=memory', 
+        '-fPIE', 
+        '-pie', 
+        '-fno-omit-frame-pointer', 
+        '-fsanitize-memory-track-origins'
+      ])
+
+    build_command = pre_build_command + compile_command + post_build_command
     build_bash_command = ['/bin/bash', '-c', ' '.join(build_command)]
     command.extend(build_bash_command)
     with open(log_path, 'w+') as log_file:

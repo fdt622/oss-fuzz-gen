@@ -82,22 +82,46 @@ class WorkDirs:
   def dry_run_logs(self):
     return os.path.join(self._base_dir, 'logs', 'dry_run')
 
+  #TODO: delete?
   def build_logs_target(self, generated_target_name: str, iteration: int):
     return os.path.join(self.build_logs,
                         f'{generated_target_name}-F{iteration}.log')
+  
+  def build_with_asan_logs_target(self, generated_target_name: str, iteration: int):
+    return os.path.join(self.build_logs,
+                        f'{generated_target_name}-F{iteration}-asan.log')
+  
+  def build_with_msan_logs_target(self, generated_target_name: str, iteration: int):
+    return os.path.join(self.build_logs,
+                        f'{generated_target_name}-F{iteration}-msan.log')
 
+  #TODO: delete?
   def error_logs_target(self, generated_target_name: str,
                         iteration: int) -> str:
     return os.path.join(self.build_logs,
                         f'{generated_target_name}-F{iteration}.err.log')
+  
+  def asan_error_logs_target(self, generated_target_name: str,
+                        iteration: int) -> str:
+    return os.path.join(self.build_logs,
+                        f'{generated_target_name}-F{iteration}-asan.err.log')
+  
+  def msan_error_logs_target(self, generated_target_name: str,
+                        iteration: int) -> str:
+    return os.path.join(self.build_logs,
+                        f'{generated_target_name}-F{iteration}-msan.err.log')
 
   def run_logs_target(self, generated_target_name: str, iteration: int):
     return os.path.join(self.run_logs,
                         f'{generated_target_name}-F{iteration}.log')
 
-  def dry_run_logs_target(self, generated_target_name: str, iteration: int):
+  def dry_run_with_asan_logs_target(self, generated_target_name: str, iteration: int):
     return os.path.join(self.dry_run_logs,
-                        f'{generated_target_name}-F{iteration}.log')
+                        f'{generated_target_name}-F{iteration}-asan.log')
+  
+  def dry_run_with_msan_logs_target(self, generated_target_name: str, iteration: int):
+    return os.path.join(self.dry_run_logs,
+                        f'{generated_target_name}-F{iteration}-msan.log')
 
   @classmethod
   def get_run_log_iteration(cls, filename: str) -> Optional[int]:
