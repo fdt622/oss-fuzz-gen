@@ -701,7 +701,7 @@ class BuilderRunner:
         '-e',
         f'SANITIZER={sanitizer}',
         '-e', 
-        'ASAN_OPTIONS=check_initialization_order=true:detect_stack_use_after_return=true',
+        'ASAN_OPTIONS=${ASAN_OPTIONS}:check_initialization_order=true:detect_stack_use_after_return=true',
         '-e',
         'ARCHITECTURE=x86_64',
         '-e',
