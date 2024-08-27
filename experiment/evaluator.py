@@ -26,7 +26,7 @@ from google.cloud import storage
 
 from experiment import builder_runner, oss_fuzz_checkout, textcov
 from experiment.benchmark import Benchmark
-from experiment.builder_runner import BuildResult, RunResult
+from experiment.builder_runner import BuildResult, RunResult, DetailResult
 from experiment.fuzz_target_error import SemanticCheckResult
 from experiment.workdir import WorkDirs
 from llm_toolkit import code_fixer, corpus_generator, crash_triager
@@ -236,23 +236,22 @@ class Evaluator:
                                  target_path: str, iteration: int,
                                  build_result: BuildResult,
                                  run_result: Optional[RunResult],
-                                 dual_logger: _Logger):
+                                 dual_logger: _Logger,
+                                 detail_result: DetailResult):
     """Fixes the generated fuzz target."""
-    if not build_result.msan_succeeded:
+    if not detail_result.msan_build:
       error_desc, errors = None, build_result.errors
     elif not run_result:
-      dual_logger.log(f'Warning: Build with msan succeed but no run_result in '
-                          f'{generated_oss_fuzz_project}.')
+      dual_logger.log(f'Warning: Build with MSAN succeed but no run_result in {generated_oss_fuzz_project}.')
       error_desc, errors = '', []
-    else:
-      if not run_result.dry_run_with_msan_succeeded:
-        error_desc, errors = run_result.semantic_check.get_error_info()
-      elif not build_result.asan_succeeded:
-        error_desc, errors = None, build_result.errors
-      elif not run_result.dry_run_with_asan_succeeded:
-        error_desc, errors = run_result.semantic_check.get_error_info()
-      elif not run_result.fuzz_with_asan_succeeded:
-        error_desc, errors = run_result.semantic_check.get_error_info()
+    elif not detail_result.msan_dry_run:
+      error_desc, errors = run_result.semantic_check.get_error_info()
+    elif not detail_result.asan_build:
+      error_desc, errors = None, build_result.errors
+    elif not detail_result.asan_dry_run:
+      error_desc, errors = run_result.semantic_check.get_error_info()
+    elif not detail_result.asan_fuzz:
+      error_desc, errors = run_result.semantic_check.get_error_info()
     code_fixer.llm_fix(ai_binary, target_path, self.benchmark, iteration,
                        error_desc, errors, self.builder_runner.fixer_model_name)
     shutil.copyfile(
@@ -338,7 +337,7 @@ class Evaluator:
     while True:
       # 1. Evaluating generated driver.
       try:
-        build_result, run_result = self.builder_runner.build_and_run(
+        build_result, run_result, detail_result = self.builder_runner.build_and_run(
             generated_oss_fuzz_project, target_path, llm_fix_count,
             self.benchmark.language)
       except Exception as e:
@@ -348,9 +347,7 @@ class Evaluator:
         build_result = BuildResult()
         run_result = None
 
-      gen_succ = build_result.msan_succeeded and build_result.asan_succeeded and \
-        run_result and run_result.dry_run_with_msan_succeeded and \
-          run_result.dry_run_with_asan_succeeded and run_result.fuzz_with_asan_succeeded
+      gen_succ = build_result.succeeded and run_result and run_result.succeeded
       if gen_succ or llm_fix_count >= LLM_FIX_LIMIT:
         # Exit cond 1: successfully generate the fuzz target.
         # Exit cond 2: fix limit is reached.
@@ -365,31 +362,28 @@ class Evaluator:
                       f'attempt {llm_fix_count}.')
       try:
         self._fix_generated_fuzz_target(ai_binary, generated_oss_fuzz_project,
-                                        target_path, llm_fix_count,
-                                        build_result, run_result, dual_logger)
+                                        target_path, llm_fix_count, build_result, 
+                                        run_result, dual_logger, detail_result)
       except Exception as e:
         dual_logger.log('Exception occurred when fixing fuzz target in attempt '
                         f'{llm_fix_count}: {e}')
         break
 
     # Logs and returns the result.
-    if not build_result.msan_succeeded:
-      dual_logger.log(f'Failed to build {target_path} with MSAN under'
-                      f'{self.builder_runner.fixer_model_name} in '
-                      f'{llm_fix_count} iterations of fixing.')
-      return dual_logger.return_result(
-          Result(False, False, 0.0, 0.0, '', '', False,
-                 SemanticCheckResult.NOT_APPLICABLE,
-                 TriageResult.NOT_APPLICABLE))
-    elif not build_result.asan_succeeded:
-      dual_logger.log(f'Successfully built {target_path} with MSAN '
-                      f'but failed with ASAN under '
-                      f'{self.builder_runner.fixer_model_name} in '
-                      f'{llm_fix_count} iterations of fixing.')
-    else:
-      dual_logger.log(f'Successfully built {target_path} with MSAN and ASAN under '
-                    f'{self.builder_runner.fixer_model_name} in '
-                    f'{llm_fix_count} iterations of fixing.')
+    asan_status = 'and ASAN' if detail_result.asan_build else 'and failed with ASAN'
+    msan_status = 'Successfully built' if detail_result.msan_build else 'Failed to build'
+
+    dual_logger.log(
+        f'{msan_status} {target_path} with MSAN {asan_status} under '
+        f'{self.builder_runner.fixer_model_name} in {llm_fix_count} iterations of fixing.'
+    )
+
+    if not detail_result.msan_build:
+        return dual_logger.return_result(
+            Result(False, False, 0.0, 0.0, '', '', False,
+                  SemanticCheckResult.NOT_APPLICABLE,
+                  TriageResult.NOT_APPLICABLE))
+
 
     if not run_result:
       dual_logger.log(
@@ -400,7 +394,6 @@ class Evaluator:
                  TriageResult.NOT_APPLICABLE))
 
     # Triage the crash with LLM
-    # TODO: run_result.crashes
     if run_result.crashes and run_result.semantic_check.type \
       != SemanticCheckResult.FP_TARGET_CRASH:
       dual_logger.log(f'Triaging the crash related to {target_path} with '

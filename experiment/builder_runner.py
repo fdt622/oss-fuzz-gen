@@ -66,12 +66,19 @@ ParseResult = namedtuple(
 
 
 @dataclasses.dataclass
+class DetailResult:
+  """Detail Results of build and run."""
+  msan_build: bool = False
+  asan_build: bool = False
+  msan_dry_run: bool = False
+  asan_dry_run: bool = False
+  asan_fuzz: bool = False
+
+
+@dataclasses.dataclass
 class BuildResult:
   """Results of compilation & link."""
 
-  asan_succeeded: bool = False
-  msan_succeeded: bool = False
-  #TODO: delete succeeded
   succeeded: bool = False
   errors: list[str] = dataclasses.field(default_factory=list)
   log_path: str = ''
@@ -84,10 +91,6 @@ class BuildResult:
 class RunResult:
   """Checked results of conducting dry run and short-term fuzzing."""
 
-  dry_run_with_msan_succeeded: bool = False
-  dry_run_with_asan_succeeded: bool = False
-  fuzz_with_asan_succeeded: bool = False
-  #TODO: delete succeeded
   succeeded: bool = False
   coverage_summary: dict = dataclasses.field(default_factory=dict)
   coverage: Optional[textcov.Textcov] = None
@@ -97,9 +100,6 @@ class RunResult:
   reproducer_path: str = ''
   cov_pcs: int = 0
   total_pcs: int = 0
-  # dry_run_with_msan_crashes: bool = False
-  # dry_run_with_asan_crashes: bool = False
-  # fuzz_with_asan_crashes: bool = False
   crashes: bool = False
   crash_info: str = ''
   triage: str = TriageResult.NOT_APPLICABLE
@@ -440,16 +440,17 @@ class BuilderRunner:
 
   def build_and_run(self, generated_project: str, target_path: str,
                     iteration: int,
-                    language: str) -> tuple[BuildResult, Optional[RunResult]]:
+                    language: str) -> tuple[BuildResult, Optional[RunResult], str]:
     """Builds and runs the fuzz target for fuzzing."""
     build_result = BuildResult()
+    detail_result = DetailResult()
 
     if not self._pre_build_check(target_path, build_result):
-      return build_result, None
+      return build_result, None, detail_result
 
     try:
       return self.build_and_run_local(generated_project, target_path, iteration,
-                                      build_result, language)
+                                      build_result, language, detail_result)
     except Exception as err:
       logger.warning(
           'Error occurred when building and running fuzz target locally'
@@ -458,8 +459,8 @@ class BuilderRunner:
 
   def build_and_run_local(
       self, generated_project: str, target_path: str, iteration: int,
-      build_result: BuildResult,
-      language: str) -> tuple[BuildResult, Optional[RunResult]]:
+      build_result: BuildResult, language: str, detail_result: DetailResult, 
+      ) -> tuple[BuildResult, Optional[RunResult]]:
     """Builds and runs the fuzz target locally for once and fuzzing."""
     project_name = self.benchmark.project
     benchmark_target_name = os.path.basename(target_path)
@@ -478,7 +479,7 @@ class BuilderRunner:
         benchmark_target_name, iteration)
     #TODO: delete print
     print('benchmark_msan_log_path: ', benchmark_msan_log_path)
-    build_result.msan_succeeded = self.build_target_local(generated_project,
+    build_with_msan_succeeded = self.build_target_local(generated_project,
                                                           benchmark_msan_log_path,
                                                           sanitizer = 'memory')
 
@@ -492,13 +493,15 @@ class BuilderRunner:
       except FileNotFoundError as e:
         logger.error('Cannot get err.log for %s: %s', generated_project, e)
 
-    if not build_result.msan_succeeded:
+    if not build_with_msan_succeeded:
       errors = code_fixer.extract_error_message(benchmark_msan_log_path,
                                                 project_target_name)
       build_result.errors = errors
-      return build_result, None
+      return build_result, None, detail_result
     
+    detail_result.msan_build = True
     run_result = RunResult()
+
     # Dry run with MSAN
     self.dry_run_target_local(
         generated_project, empty_seed_path, 
@@ -513,17 +516,19 @@ class BuilderRunner:
         run_result.crashes, run_result.crash_info, \
           run_result.semantic_check = \
             self._parse_libfuzzer_logs(f, project_name, flag)
-      run_result.dry_run_with_msan_succeeded = not run_result.crashes
+      dry_run_with_msan_succeeded = not run_result.crashes
 
-    if not run_result.dry_run_with_msan_succeeded:
-      return build_result, run_result
+    if not dry_run_with_msan_succeeded:
+      return build_result, run_result, detail_result
+    
+    detail_result.msan_dry_run = True
     
     # Build with ASAN
     benchmark_asan_log_path = self.work_dirs.build_with_asan_logs_target(
         benchmark_target_name, iteration)
     #TODO: delete print
     print('benchmark_asan_log_path: ', benchmark_asan_log_path)
-    build_result.asan_succeeded = self.build_target_local(generated_project,
+    build_with_asan_succeeded = self.build_target_local(generated_project,
                                                      benchmark_asan_log_path)
 
     # Copy err.log into work dir (Ignored for JVM projects)
@@ -536,12 +541,15 @@ class BuilderRunner:
       except FileNotFoundError as e:
         logger.error('Cannot get err.log for %s: %s', generated_project, e)
 
-    if not build_result.asan_succeeded:
+    if not build_with_asan_succeeded:
       errors = code_fixer.extract_error_message(benchmark_asan_log_path,
                                                 project_target_name)
       build_result.errors = errors
-      return build_result, run_result
+      return build_result, run_result, detail_result
     
+    detail_result.asan_build = True
+    build_result.succeeded = True
+
     # Dry run with ASAN
     self.dry_run_target_local(
         generated_project, empty_seed_path,
@@ -556,10 +564,12 @@ class BuilderRunner:
         run_result.crashes, run_result.crash_info, \
           run_result.semantic_check = \
             self._parse_libfuzzer_logs(f, project_name, flag)
-      run_result.dry_run_with_asan_succeeded = not run_result.crashes
+      dry_run_with_asan_succeeded = not run_result.crashes
 
-    if not run_result.dry_run_with_asan_succeeded:
-      return build_result, run_result
+    if not dry_run_with_asan_succeeded:
+      return build_result, run_result, detail_result
+    
+    detail_result.asan_dry_run = True
       
     # Short-term fuzzing
     self.run_target_local(
@@ -580,9 +590,12 @@ class BuilderRunner:
         run_result.crashes, run_result.crash_info, \
           run_result.semantic_check = \
             self._parse_libfuzzer_logs(f, project_name, flag)
-      run_result.fuzz_with_asan_succeeded = not run_result.semantic_check.has_err
+      run_result.succeeded = not run_result.semantic_check.has_err
 
-    return build_result, run_result
+    if run_result.succeeded:
+      detail_result.asan_fuzz = True
+
+    return build_result, run_result, detail_result
 
   def dry_run_target_local(self, generated_project: str, empty_seed_path: str,
                           log_path: str, sanitizer: str):
