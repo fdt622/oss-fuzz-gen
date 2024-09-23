@@ -419,7 +419,7 @@ class BuilderRunner:
       if len(crash_stacks) > 0:
         first_stack = crash_stacks[0]
         # Check the first stack frame of the first stack only.
-        for stack_frame in first_stack[:1]:
+        for stack_frame in first_stack:
           if self._stack_func_is_of_testing_project(stack_frame):
             if 'LLVMFuzzerTestOneInput' in stack_frame:
               return ParseResult(
