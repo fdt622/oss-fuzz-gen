@@ -18,7 +18,7 @@ A script to generate LLM prompts based on existing example code and scaffold.
 import argparse
 import sys
 
-from llm_toolkit.crash_triager import TriageResult
+from llm_toolkit.crash_triager import TriageCrashResult
 
 RAW_OUTPUT_EXT = '.rawoutput'
 
@@ -98,11 +98,11 @@ def parse_triage(triage_path: str) -> tuple[str, str]:
   lines = solution.splitlines()
   for line in lines:
     if "Crash is caused by bug in fuzz driver" in line:
-      return (TriageResult.DRIVER, '\n'.join(lines))
+      return (TriageCrashResult.DRIVER, '\n'.join(lines))
     if "Crash is caused by bug in project" in line:
-      return (TriageResult.PROJECT, '\n'.join(lines))
+      return (TriageCrashResult.PROJECT, '\n'.join(lines))
 
-  return (TriageResult.NOT_APPLICABLE, '\n'.join(lines))
+  return (TriageCrashResult.NOT_APPLICABLE, '\n'.join(lines))
 
 
 def save_output(content: str, output_path: str) -> None:

@@ -34,8 +34,7 @@ from experiment import oss_fuzz_checkout, textcov
 from experiment.benchmark import Benchmark
 from experiment.fuzz_target_error import SemanticCheckResult
 from experiment.workdir import WorkDirs
-from llm_toolkit import code_fixer
-from llm_toolkit.crash_triager import TriageResult
+from llm_toolkit import code_fixer, crash_triager
 from llm_toolkit.models import DefaultModel
 
 logger = logging.getLogger(__name__)
@@ -92,7 +91,8 @@ class RunResult:
   total_pcs: int = 0
   crashes: bool = False
   crash_info: str = ''
-  triage: str = TriageResult.NOT_APPLICABLE
+  crash_triage: str = crash_triager.TriageCrashResult.NOT_APPLICABLE
+  stack_func_triage: str = crash_triager.TriageStackFuncResult.NOT_APPLICABLE
   semantic_check: SemanticCheckResult = SemanticCheckResult(
       SemanticCheckResult.NOT_APPLICABLE)
 
@@ -311,12 +311,6 @@ class BuilderRunner:
 
     return initcov, donecov, lastround
 
-  def _stack_func_is_of_testing_project(self, stack_frame: str) -> bool:
-    return (bool(CRASH_STACK_WITH_SOURCE_INFO.match(stack_frame)) and
-            LIBFUZZER_LOG_STACK_FRAME_LLVM not in stack_frame and
-            LIBFUZZER_LOG_STACK_FRAME_LLVM2 not in stack_frame and
-            LIBFUZZER_LOG_STACK_FRAME_CPP not in stack_frame)
-
   def _parse_libfuzzer_logs(self,
                             log_handle,
                             project_name: str,
@@ -415,18 +409,13 @@ class BuilderRunner:
             SemanticCheckResult(SemanticCheckResult.FP_NEAR_INIT_CRASH, symptom,
                                 crash_stacks, crash_func))
 
-      # FP case 3: 1st func of the 1st thread stack is in fuzz target.
+      # FP case 3: no func belonging to proj is executed.
       if len(crash_stacks) > 0:
-        first_stack = crash_stacks[0]
-        # Check the first stack frame of the first stack only.
-        for stack_frame in first_stack:
-          if self._stack_func_is_of_testing_project(stack_frame):
-            if 'LLVMFuzzerTestOneInput' in stack_frame:
-              return ParseResult(
-                  cov_pcs, total_pcs, True, crash_info,
-                  SemanticCheckResult(SemanticCheckResult.FP_TARGET_CRASH,
-                                      symptom, crash_stacks, crash_func))
-            break
+        if not crash_triager.stack_func_is_of_testing_proj(crash_stacks):
+            return ParseResult(
+                cov_pcs, total_pcs, True, crash_info,
+                SemanticCheckResult(SemanticCheckResult.FP_TARGET_CRASH,
+                                    symptom, crash_stacks, crash_func))
 
       return ParseResult(
           cov_pcs, total_pcs, True, crash_info,

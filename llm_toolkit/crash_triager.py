@@ -23,12 +23,45 @@ from llm_toolkit import output_parser as parser
 from llm_toolkit import prompt_builder
 
 
-class TriageResult:
+class TriageCrashResult:
   """Crash triage results."""
   NOT_APPLICABLE = '-'
   DRIVER = 'DRIVER'
   PROJECT = 'PROJECT'
 
+
+class TriageStackFuncResult:
+  """Crash stack func trage results."""
+  NOT_APPLICABLE = '-'
+  YES = 'YES'
+  NO = 'NO'
+
+
+def stack_func_is_of_testing_proj(
+    ai_binary: str,
+    driver_path: str,
+    benchmark: benchmarklib.Benchmark,
+    crash_stacks: list[list[str]],
+    triage_model_name: str,
+) -> bool:
+  """Determines whether stack func belongs to testing proj with LLM."""
+
+  return True
+
+# is testing proj -> executed -> true
+# is not testing proj -> not executed -> false
+def apply_stack_func_is_of_testing_proj(
+    ai_binary: str,
+    benchmark: benchmarklib.Benchmark,
+    crash_stacks: list[list[str]],
+    prompt_path: str,
+    response_dir: str,
+    triage_model_name: str = models.DefaultModel.name,
+    temperature: float = 0.4,
+) -> bool:
+  """Queries LLM to determine whether stack func belongs to testing proj."""
+
+  return True
 
 # ========================= LLM Triage ========================= #
 def llm_triage(
@@ -58,7 +91,7 @@ def llm_triage(
                    temperature=0.5)
 
   triage_candidates = []
-  triage_result = TriageResult.NOT_APPLICABLE
+  triage_result = TriageCrashResult.NOT_APPLICABLE
   for file in os.listdir(response_dir):
     if not parser.is_raw_output(file):
       continue
@@ -68,7 +101,7 @@ def llm_triage(
 
   if not triage_candidates:
     logging.warning('LLM did not generate rawoutput for %s', prompt_path)
-    return TriageResult.NOT_APPLICABLE
+    return TriageCrashResult.NOT_APPLICABLE
 
   # TODO(fdt622): Use the common vote
   # Currently, we prefer the longest triage.

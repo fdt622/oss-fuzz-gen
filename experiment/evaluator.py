@@ -30,7 +30,7 @@ from experiment.builder_runner import BuildResult, RunResult
 from experiment.fuzz_target_error import SemanticCheckResult
 from experiment.workdir import WorkDirs
 from llm_toolkit import code_fixer, corpus_generator, crash_triager
-from llm_toolkit.crash_triager import TriageResult
+from llm_toolkit.crash_triager import TriageCrashResult
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +303,31 @@ class Evaluator:
       )
 
     dual_logger.log(f'Warning: no crash info in {generated_oss_fuzz_project}.')
-    return TriageResult.NOT_APPLICABLE
+    return TriageCrashResult.NOT_APPLICABLE
+  
+  def triage_crash_stack_func(
+      self,
+      ai_binary: str,
+      generated_oss_fuzz_project: str,
+      driver_path: str,
+      run_result: RunResult,
+      dual_logger: _Logger,
+  ) -> str:
+    """Triages the crash stack func."""
+    if run_result.crash_info:
+      crash_info = run_result.crash_info
+      crash_func = run_result.semantic_check.crash_func
+      return crash_triager.llm_triage(
+          ai_binary,
+          driver_path,
+          self.benchmark,
+          crash_info,
+          crash_func,
+          self.builder_runner.fixer_model_name,
+      )
+
+    dual_logger.log(f'Warning: no crash stack func in {generated_oss_fuzz_project}.')
+    return TriageCrashResult.NOT_APPLICABLE
 
   def extend_build_with_corpus(self, ai_binary, target_path,
                                generated_oss_fuzz_project):
@@ -399,7 +423,7 @@ class Evaluator:
       return dual_logger.return_result(
           Result(False, False, 0.0, 0.0, '', '', False,
                  SemanticCheckResult.NOT_APPLICABLE,
-                 TriageResult.NOT_APPLICABLE))
+                 TriageCrashResult.NOT_APPLICABLE))
 
     dual_logger.log(f'Successfully built {target_path} with '
                     f'{self.builder_runner.fixer_model_name} in '
@@ -411,12 +435,12 @@ class Evaluator:
       return dual_logger.return_result(
           Result(True, False, 0.0, 0.0, '', '', False,
                  SemanticCheckResult.NOT_APPLICABLE,
-                 TriageResult.NOT_APPLICABLE))
+                 TriageCrashResult.NOT_APPLICABLE))
 
     # Triage the crash with LLM
     dual_logger.log(f'Triaging the crash related to {target_path} with '
                     f'{self.builder_runner.fixer_model_name}.')
-    run_result.triage = self.triage_crash(
+    run_result.crash_triage = self.triage_crash(
         ai_binary,
         generated_oss_fuzz_project,
         target_path,
@@ -431,7 +455,7 @@ class Evaluator:
       return dual_logger.return_result(
           Result(True, run_result.crashes, 0.0, 0.0, '', '',
                  not run_result.succeeded, run_result.semantic_check.type,
-                 run_result.triage))
+                 run_result.crash_triage))
 
     if not run_result.succeeded:
       dual_logger.log(f'Warning: Failed to fix semantic error '
@@ -440,7 +464,7 @@ class Evaluator:
       return dual_logger.return_result(
           Result(True, run_result.crashes, 0.0, 0.0,
                  run_result.coverage_report_path, run_result.reproducer_path,
-                 True, run_result.semantic_check.type, run_result.triage))
+                 True, run_result.semantic_check.type, run_result.crash_triage))
 
     # Gets line coverage (diff) details.
     coverage_summary = self._load_existing_coverage_summary()
@@ -489,7 +513,7 @@ class Evaluator:
         Result(True, run_result.crashes, coverage_percent, coverage_diff,
                run_result.coverage_report_path, run_result.reproducer_path,
                not run_result.succeeded, run_result.semantic_check.type,
-               run_result.triage, run_result.coverage))
+               run_result.crash_triage, run_result.coverage))
 
   def _load_existing_coverage_summary(self) -> dict:
     """Load existing summary.json."""
