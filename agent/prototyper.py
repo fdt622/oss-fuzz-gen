@@ -149,7 +149,7 @@ class Prototyper(BaseAgent):
                                agent_dialogs={self.name: ''})
     try:
       client = self.llm.get_chat_client(model=self.llm.get_model())
-      while prompt and cur_round < MAX_ROUND:
+      while prompt and cur_round < MAX_ROUND: #chat 99 times
         logger.info('ROUND %02d agent prompt: %s', cur_round, prompt.get())
         response = self.llm.chat_llm(client=client, prompt=prompt)
         logger.debug('ROUND %02d LLM response: %s', cur_round, response)

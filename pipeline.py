@@ -48,7 +48,7 @@ class Pipeline():
     self.logger.info('Cycle %d initial result is %s', cycle_count,
                      result_history[-1])
     result_history.append(
-        self.writing_stage.execute(result_history=result_history))
+        self.writing_stage.execute(result_history=result_history)) #_execute_one_cycle twice <=> writing_stage twice
     self.logger.info('Cycle %d final result is %s', cycle_count,
                      result_history[-1])
 
@@ -64,9 +64,9 @@ class Pipeline():
     """
     self.logger.debug('Pipline starts')
     cycle_count = 1
-    while not self._terminate(result_history=result_history):
-      self._execute_one_cycle(result_history=result_history,
-                              cycle_count=cycle_count)
+    while not self._terminate(result_history=result_history): #len(history)=2
+      self._execute_one_cycle(result_history=result_history,  #_execute_one_cycle twice
+                              cycle_count=cycle_count)        #cycle_count=2+1=3
       cycle_count += 1
 
     final_result = result_history[-1]
