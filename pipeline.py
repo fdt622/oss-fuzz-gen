@@ -4,7 +4,7 @@ from typing import Optional
 
 import logger
 from agent.base_agent import BaseAgent
-from results import BuildResult, Result
+from results import BuildResult, Result, RunResult
 from stage.analysis_stage import AnalysisStage
 from stage.execution_stage import ExecutionStage
 from stage.writing_stage import WritingStage
@@ -25,20 +25,20 @@ class Pipeline():
   def __init__(self,
                args: argparse.Namespace,
                writing_stage_agents: Optional[list[BaseAgent]] = None,
-               evaluation_stage_agents: Optional[list[BaseAgent]] = None,
+               execution_stage_agents: Optional[list[BaseAgent]] = None,
                analysis_stage_agents: Optional[list[BaseAgent]] = None):
     self.args = args
     self.logger = logger.get_trial_logger()
     self.logger.debug('Pipline Initialized')
     self.writing_stage: WritingStage = WritingStage(args, writing_stage_agents)
     self.execution_stage: ExecutionStage = ExecutionStage(
-        args, evaluation_stage_agents)
+        args, execution_stage_agents)
     self.analysis_stage: AnalysisStage = AnalysisStage(args,
                                                        analysis_stage_agents)
 
   def _terminate(self, result_history: list[Result]) -> bool:
     """Validates if the termination conditions have been satisfied."""
-    conditions = bool(result_history and len(result_history) > 1)
+    conditions = bool(result_history and len(result_history) > 10)
     self.logger.info('termination condition met: %s', conditions)
     return conditions
 
@@ -57,6 +57,20 @@ class Pipeline():
 
     result_history.append(
         self.execution_stage.execute(result_history=result_history))
+    if not isinstance(result_history[-1], RunResult):
+      self.logger.error('Cycle %d run failure, skipping the rest steps',
+                        cycle_count)
+      return
+
+    #TODO(fdt622): delete print(cloud experiment)
+    print('RunResult reproducer_path: ', result_history[-1].reproducer_path)
+
+    last_result = result_history[-1]
+    language = last_result.benchmark.language.lower()
+    if last_result.crashes and language in {'c', 'c++'}:
+      result_history.append(
+          self.analysis_stage.execute(
+              result_history=result_history))  # append one CrashResult
 
     self.logger.info('Cycle %d final result is %s', cycle_count,
                      result_history[-1])
@@ -66,13 +80,15 @@ class Pipeline():
     Runs the fuzzing pipeline iteratively to assess and refine the fuzz target.
     1. Writing Stage refines the fuzz target and its build script using insights
     from the previous cycle.
-    2. Evaluation Stage measures the performance of the revised fuzz target.
-    3. Analysis Stage examines the evaluation results to guide the next cycle's
+    2. Execution Stage measures the performance of the revised fuzz target.
+    3. Analysis Stage examines the execution results to guide the next cycle's
     improvements.
     The process repeats until the termination conditions are met.
     """
     self.logger.debug('Pipline starts')
     cycle_count = 1
+    #TODO: delete comment
+    #origin: execute _execute_one_cycle twice
     while not self._terminate(result_history=result_history):
       self._execute_one_cycle(result_history=result_history,
                               cycle_count=cycle_count)

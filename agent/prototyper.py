@@ -138,11 +138,15 @@ class Prototyper(BaseAgent):
     logger.info('Executing Prototyper')
     last_result = result_history[-1]
     prompt = self._initial_prompt(result_history)
+    #TODO: delete info
+    logger.info('prototyper initial prompt: %s', prompt.get())
     benchmark = last_result.benchmark
     self.inspect_tool = ProjectContainerTool(benchmark, name='inspect')
     self.inspect_tool.execute('{compile && rm -rf /out/*} > /dev/null')
     cur_round = 1
-    prompt.append(self.inspect_tool.tutorial())
+    prompt.add_problem(self.inspect_tool.tutorial())
+    #TODO: delete info
+    logger.info('prototyper after append tutorial prompt: %s', prompt.get())
     build_result = BuildResult(benchmark=benchmark,
                                trial=last_result.trial,
                                work_dirs=last_result.work_dirs,
@@ -151,9 +155,11 @@ class Prototyper(BaseAgent):
     try:
       client = self.llm.get_chat_client(model=self.llm.get_model())
       while prompt and cur_round < MAX_ROUND:
-        logger.info('ROUND %02d agent prompt: %s', cur_round, prompt.get())
+        logger.info('Prototyper ROUND %02d agent prompt: %s', cur_round,
+                    prompt.get())
         response = self.llm.chat_llm(client=client, prompt=prompt)
-        logger.debug('ROUND %02d LLM response: %s', cur_round, response)
+        logger.debug('Prototyper ROUND %02d LLM response: %s', cur_round,
+                     response)
         prompt = self._container_tool_reaction(cur_round, response,
                                                build_result)
         cur_round += 1
@@ -163,4 +169,5 @@ class Prototyper(BaseAgent):
       logger.debug('Stopping and removing the inspect container %s',
                    self.inspect_tool.container_id)
       self.inspect_tool.terminate()
+
     return build_result

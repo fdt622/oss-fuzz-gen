@@ -3,6 +3,7 @@ crashes of the fuzz targets. This stage will run the fuzz target with OSS-Fuzz
 infra and report its code coverage and crashes."""
 import os
 
+import logger
 from experiment import builder_runner as builder_runner_lib
 from experiment import evaluator as evaluator_lib
 from experiment.evaluator import Evaluator
@@ -21,6 +22,7 @@ class ExecutionStage(BaseStage):
     """Executes the fuzz target and build script in the latest result."""
     last_result = result_history[-1]
     benchmark = last_result.benchmark
+    trial = last_result.trial
     if self.args.cloud_experiment_name:
       builder_runner = builder_runner_lib.CloudBuilderRunner(
           benchmark=benchmark,
@@ -39,14 +41,25 @@ class ExecutionStage(BaseStage):
     evaluator = Evaluator(builder_runner, benchmark, last_result.work_dirs)
     generated_target_name = os.path.basename(benchmark.target_path)
     sample_id = os.path.splitext(generated_target_name)[0]
-    generated_oss_fuzz_project = f'{benchmark.id}-{sample_id}'
+    #TODO(fdt622): delete info
+    logger.info('Execution benchmark.target_path: %s', benchmark.target_path)
+    logger.info('Execution benchmark.id: %s', benchmark.id)
+    logger.info('Execution generated_target_name: %s', generated_target_name)
+    logger.info('Execution sample_id: %s', sample_id)
+    generated_oss_fuzz_project = f'{benchmark.id}-{sample_id}-{trial:02d}'
+    logger.info('Execution generated_oss_fuzz_project: %s', \
+                generated_oss_fuzz_project)
     generated_oss_fuzz_project = evaluator_lib.rectify_docker_tag(
         generated_oss_fuzz_project)
+    logger.info('Execution generated_oss_fuzz_project(after rectify): %s', \
+                generated_oss_fuzz_project)
 
     fuzz_target_path = os.path.join(last_result.work_dirs.fuzz_targets,
-                                    f'{last_result.trial:02d}.fuzz_target')
+                                    f'{trial:02d}.fuzz_target')
     build_script_path = os.path.join(last_result.work_dirs.fuzz_targets,
-                                     f'{last_result.trial:02d}.build_script')
+                                     f'{trial:02d}.build_script')
+    logger.info('Execution fuzz_target_path: %s', fuzz_target_path)
+    logger.info('Execution build_script_path: %s', build_script_path)
     evaluator.create_ossfuzz_project(generated_oss_fuzz_project,
                                      fuzz_target_path, build_script_path)
 
@@ -64,13 +77,15 @@ class ExecutionStage(BaseStage):
       raise TypeError
 
     try:
+      #TODO(fdt622): delete comment
+      # build image, create and start container, compile, fuzz
       _, run_result = evaluator.builder_runner.build_and_run(
           generated_oss_fuzz_project,
           fuzz_target_path,
           0,
           benchmark.language,
           cloud_build_tags=[
-              str(last_result.trial),
+              str(trial),
               'Execution',
               'ofg',
               # TODO(dongge): Tag function name, compatible with tag format.
@@ -110,7 +125,7 @@ class ExecutionStage(BaseStage):
         coverage_diff = 0.0
       runresult = RunResult(
           benchmark=benchmark,
-          trial=last_result.trial,
+          trial=trial,
           work_dirs=last_result.work_dirs,
           fuzz_target_source=last_result.fuzz_target_source,
           build_script_source=last_result.build_script_source,
@@ -121,11 +136,15 @@ class ExecutionStage(BaseStage):
           compile_log=last_result.compile_log,
           crashes=run_result.crashes,
           run_error=run_result.crash_info,
+          crash_func=run_result.semantic_check.crash_func,
           run_log=run_result.log_path,
           coverage_summary=run_result.coverage_summary,
           coverage=coverage_percent,
           line_coverage_diff=coverage_diff,
           reproducer_path=run_result.reproducer_path,
+          artifact_path=run_result.artifact_path,
+          artifact_name=run_result.artifact_name,
+          sanitizer=run_result.sanitizer,
           textcov_diff=run_result.coverage,
           log_path=run_result.log_path,
           corpus_path=run_result.corpus_path,
@@ -135,7 +154,7 @@ class ExecutionStage(BaseStage):
     except Exception as e:
       self.logger.error('Exception %s occurred on %s', e, last_result)
       runresult = RunResult(benchmark=benchmark,
-                            trial=last_result.trial,
+                            trial=trial,
                             work_dirs=last_result.work_dirs,
                             fuzz_target_source=last_result.fuzz_target_source,
                             build_script_source=last_result.build_script_source,
