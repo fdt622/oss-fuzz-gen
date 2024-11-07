@@ -45,7 +45,7 @@ class Prototyper(BaseAgent):
     """
     fuzz_target_source = self._filter_code(
         self._parse_tag(response, 'fuzz target'))
-    build_result.fuzz_target_source = fuzz_target_source  #assign new fuzz target
+    build_result.fuzz_target_source = fuzz_target_source
     if fuzz_target_source:
       logger.debug('ROUND %02d Parsed fuzz target from LLM: %s',
                    cur_round,
