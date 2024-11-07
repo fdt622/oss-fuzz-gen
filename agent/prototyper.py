@@ -45,7 +45,7 @@ class Prototyper(BaseAgent):
     """
     fuzz_target_source = self._filter_code(
         self._parse_tag(response, 'fuzz target'))
-    build_result.fuzz_target_source = fuzz_target_source
+    build_result.fuzz_target_source = fuzz_target_source #assign new fuzz target
     if fuzz_target_source:
       logger.debug('ROUND %02d Parsed fuzz target from LLM: %s',
                    cur_round,
@@ -128,7 +128,7 @@ class Prototyper(BaseAgent):
       self, cur_round: int, build_result: BuildResult) -> None:
     """Validates the new fuzz target and build script by recompiling them."""
     benchmark = build_result.benchmark
-    compilation_tool = ProjectContainerTool(benchmark=benchmark)
+    compilation_tool = ProjectContainerTool(benchmark=benchmark) #second time, use existing image, create new container
 
     # Replace fuzz target and build script in the container.
     replace_file_content_command = (
